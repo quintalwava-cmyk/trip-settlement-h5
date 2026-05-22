@@ -256,9 +256,9 @@ function loadTrips() {
   }
 }
 
-function saveTrips() {
+function saveTrips(tripId = state.selectedId) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trips));
-  queueCloudSave();
+  queueCloudSave(tripId);
 }
 
 function setCloudStatus(trip, message) {
@@ -500,12 +500,12 @@ async function loadCloudTrip(id) {
   }
 }
 
-function queueCloudSave() {
-  const trip = getSelectedTrip();
+function queueCloudSave(tripId = state.selectedId) {
+  const trip = state.trips.find((item) => item.id === tripId);
   if (!trip?.cloudId) return;
   window.clearTimeout(queueCloudSave.timer);
   queueCloudSave.timer = window.setTimeout(async () => {
-    const trip = getSelectedTrip();
+    const trip = state.trips.find((item) => item.id === tripId);
     if (!trip?.cloudId) return;
     setCloudStatus(trip, "正在保存当前出差事项");
     render();
