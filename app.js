@@ -19,9 +19,8 @@ const state = {
   query: "",
   toast: "",
   exportFile: null,
-  cloudTripId: "",
   cloudStatus: "",
-  shareLink: "",
+  cloudStatusTripId: "",
 };
 
 function uid() {
@@ -82,6 +81,7 @@ function normalizeTrip(trip) {
   trip.plan ||= {};
   trip.plan.owner ||= "";
   trip.expenses ||= [];
+  trip.cloudId ||= "";
   if (!Array.isArray(trip.memberReports)) {
     const legacyPeople = unique(splitNames(trip.actual?.peopleText));
     trip.memberReports = legacyPeople.map((name) => ({
@@ -259,6 +259,15 @@ function loadTrips() {
 function saveTrips() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trips));
   queueCloudSave();
+}
+
+function setCloudStatus(trip, message) {
+  state.cloudStatus = message;
+  state.cloudStatusTripId = trip?.id || "";
+}
+
+function getCloudStatus(trip) {
+  return state.cloudStatusTripId === trip?.id ? state.cloudStatus : "";
 }
 
 function getSelectedTrip() {
@@ -473,42 +482,44 @@ async function apiTrip(method, payload) {
 
 async function loadCloudTrip(id) {
   state.cloudStatus = "正在加载云端任务";
+  state.cloudStatusTripId = "";
   render();
   try {
     const data = await apiTrip("GET", { id });
     const trip = normalizeTrip(data.trip);
+    trip.cloudId = data.id;
     state.trips = [trip];
     state.selectedId = trip.id;
-    state.cloudTripId = data.id;
-    state.shareLink = tripLink(data.id);
-    state.cloudStatus = "云端任务已连接";
+    setCloudStatus(trip, "此出差事项已连接云端");
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trips));
     render();
   } catch (error) {
     state.cloudStatus = "";
+    state.cloudStatusTripId = "";
     showToast(error.message || "云端任务加载失败");
   }
 }
 
 function queueCloudSave() {
-  if (!state.cloudTripId) return;
+  const trip = getSelectedTrip();
+  if (!trip?.cloudId) return;
   window.clearTimeout(queueCloudSave.timer);
   queueCloudSave.timer = window.setTimeout(async () => {
     const trip = getSelectedTrip();
-    if (!trip) return;
-    state.cloudStatus = "正在保存云端任务";
+    if (!trip?.cloudId) return;
+    setCloudStatus(trip, "正在保存当前出差事项");
     render();
     try {
       const data = await apiTrip("POST", {
-        id: state.cloudTripId,
+        id: trip.cloudId,
         trip,
       });
-      state.cloudTripId = data.id;
-      state.shareLink = tripLink(data.id);
-      state.cloudStatus = "云端任务已保存";
+      trip.cloudId = data.id;
+      setCloudStatus(trip, "当前出差事项已保存");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trips));
       render();
     } catch (error) {
-      state.cloudStatus = "云端保存失败";
+      setCloudStatus(trip, "云端保存失败");
       render();
     }
   }, 500);
@@ -517,21 +528,22 @@ function queueCloudSave() {
 async function shareCurrentTrip() {
   const trip = getSelectedTrip();
   if (!trip) return;
-  state.cloudStatus = "正在生成分享链接";
+  setCloudStatus(trip, "正在生成此出差事项的分享链接");
   render();
   try {
     const data = await apiTrip("POST", {
-      id: state.cloudTripId || trip.cloudId,
+      id: trip.cloudId,
       trip,
     });
-    state.cloudTripId = data.id;
-    state.shareLink = tripLink(data.id);
-    window.history.replaceState({}, "", state.shareLink);
-    await copyText(state.shareLink);
-    state.cloudStatus = "分享链接已复制";
-    showToast("分享链接已复制");
+    trip.cloudId = data.id;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.trips));
+    const shareLink = tripLink(data.id);
+    await copyText(shareLink);
+    setCloudStatus(trip, "此出差事项分享链接已复制");
+    showToast("当前出差事项分享链接已复制");
   } catch (error) {
     state.cloudStatus = "";
+    state.cloudStatusTripId = "";
     showToast(error.message || "生成分享链接失败");
   }
   render();
@@ -560,9 +572,8 @@ function updateTrip(mutator) {
 }
 
 function createTrip() {
-  state.cloudTripId = "";
   state.cloudStatus = "";
-  state.shareLink = "";
+  state.cloudStatusTripId = "";
   if (window.location.search.includes("trip=")) {
     window.history.replaceState({}, "", window.location.pathname);
   }
@@ -582,6 +593,8 @@ function deleteTrip(id) {
   if (!window.confirm("确定删除这条出差记录吗？")) return;
   state.trips = state.trips.filter((trip) => trip.id !== id);
   state.selectedId = state.trips[0]?.id || "";
+  state.cloudStatus = "";
+  state.cloudStatusTripId = "";
   saveTrips();
   render();
 }
@@ -699,9 +712,8 @@ function toggleParticipant(expenseId, person) {
 
 function resetSample() {
   if (!window.confirm("这会用示例数据覆盖当前浏览器中的数据，确定继续吗？")) return;
-  state.cloudTripId = "";
   state.cloudStatus = "";
-  state.shareLink = "";
+  state.cloudStatusTripId = "";
   if (window.location.search.includes("trip=")) {
     window.history.replaceState({}, "", window.location.pathname);
   }
@@ -973,15 +985,18 @@ function renderShell() {
 }
 
 function renderCloudNotice() {
-  if (!state.cloudTripId && !state.cloudStatus) return "";
+  const trip = getSelectedTrip();
+  const status = getCloudStatus(trip);
+  const shareLink = trip?.cloudId ? tripLink(trip.cloudId) : "";
+  if (!shareLink && !status) return "";
   return `
     <div class="cloud-notice">
       <div>
-        <strong>${escapeHtml(state.cloudStatus || "云端任务已启用")}</strong>
-        <span>${escapeHtml(state.shareLink || "负责人可将此链接发给成员填写")}</span>
+        <strong>${escapeHtml(status || "此出差事项已启用共享")}</strong>
+        <span>${escapeHtml(shareLink || "负责人可将当前出差事项链接发给成员填写")}</span>
       </div>
       ${
-        state.shareLink
+        shareLink
           ? `<button class="button" data-action="copy-share-link">复制链接</button>`
           : ""
       }
@@ -1366,9 +1381,10 @@ function bindEvents() {
     if (target.dataset.action === "new-trip") createTrip();
     if (target.dataset.action === "reset-sample") resetSample();
     if (target.dataset.action === "share-trip") shareCurrentTrip();
-    if (target.dataset.action === "copy-share-link" && state.shareLink) {
-      copyText(state.shareLink);
-      showToast("分享链接已复制");
+    if (target.dataset.action === "copy-share-link" && trip?.cloudId) {
+      const shareLink = trip?.cloudId ? tripLink(trip.cloudId) : "";
+      copyText(shareLink);
+      showToast("当前出差事项分享链接已复制");
     }
     if (target.dataset.action === "export" && trip) exportTrip(trip);
     if (target.dataset.action === "export-retry") retryExportDownload();
@@ -1382,6 +1398,8 @@ function bindEvents() {
     if (target.dataset.action === "add-member") addMemberReport();
     if (target.dataset.select) {
       state.selectedId = target.dataset.select;
+      state.cloudStatus = "";
+      state.cloudStatusTripId = "";
       render();
     }
     if (target.dataset.tab) {
@@ -1404,6 +1422,8 @@ function bindEvents() {
     const target = event.target;
     if (target.dataset.action === "mobile-select") {
       state.selectedId = target.value;
+      state.cloudStatus = "";
+      state.cloudStatusTripId = "";
       render();
       return;
     }
