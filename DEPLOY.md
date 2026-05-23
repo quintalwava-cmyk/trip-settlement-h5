@@ -1,24 +1,55 @@
 # 部署说明
 
-这个项目包含静态网页和 Netlify Functions。入口文件是 `index.html`。
+这个项目是静态网页，入口文件是 `index.html`。多人共享填写的数据同步到 Supabase。
 
-## 重要：多人共享填写需要 Git 部署
+## 重要：多人共享填写需要 Supabase
 
 现在应用已经支持负责人生成分享链接，成员打开同一个链接填写同一份云端任务数据。这个能力依赖：
 
-- `netlify/functions/trip.mjs`
-- `@netlify/blobs`
-- `netlify.toml`
+- `config.js` 中的 Supabase URL 和 publishable key
+- Supabase 表 `public.trips`
 
-因此建议用 GitHub 仓库连接 Netlify 部署，让 Netlify 自动安装依赖并发布 Functions。
+Supabase 表结构：
 
-## 仅静态预览：Netlify Drop
+```sql
+create table if not exists public.trips (
+  id uuid primary key default gen_random_uuid(),
+  cloud_id text not null unique,
+  owner_key text,
+  data jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.trips enable row level security;
+
+create policy "Allow public read trips by link"
+on public.trips
+for select
+to anon
+using (true);
+
+create policy "Allow public create trips"
+on public.trips
+for insert
+to anon
+with check (true);
+
+create policy "Allow public update trips"
+on public.trips
+for update
+to anon
+using (true)
+with check (true);
+```
+
+## 静态预览：Netlify Drop
 
 1. 打开 https://app.netlify.com/drop
 2. 将整个项目文件夹拖进去，或压缩成 zip 后上传。
 3. 等待部署完成，Netlify 会生成一个公网地址。
 
-这种方式适合预览页面，但不适合多人共享填写，因为 Functions/Blobs 可能不会被完整构建。
+只要 `config.js` 配置正确，这种方式也可以连接 Supabase。
 
 ## 推荐正式测试：Netlify + GitHub
 

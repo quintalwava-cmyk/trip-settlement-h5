@@ -1,3 +1,5 @@
+import { SUPABASE_CONFIG } from "./config.js";
+
 const STORAGE_KEY = "trip-settlement-records-v1";
 const DAILY_ALLOWANCE = 180;
 
@@ -694,17 +696,76 @@ function tripLink(id) {
   return url.toString();
 }
 
+function supabaseBaseUrl() {
+  return String(SUPABASE_CONFIG.url || "").replace(/\/+$/, "");
+}
+
+function supabaseHeaders(extra = {}) {
+  const key = SUPABASE_CONFIG.anonKey;
+  if (!supabaseBaseUrl() || !key) {
+    throw new Error("Supabase 配置缺失");
+  }
+  return {
+    apikey: key,
+    authorization: `Bearer ${key}`,
+    "content-type": "application/json",
+    ...extra,
+  };
+}
+
+function supabaseTripUrl(path = "") {
+  return `${supabaseBaseUrl()}/rest/v1/trips${path}`;
+}
+
+function cloneTripForCloud(trip, cloudId) {
+  return {
+    ...JSON.parse(JSON.stringify(trip)),
+    cloudId,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function apiTrip(method, payload) {
-  const url = new URL("/.netlify/functions/trip", window.location.origin);
-  if (method === "GET") url.searchParams.set("id", payload.id);
-  const response = await fetch(url, {
-    method,
-    headers: method === "POST" ? { "content-type": "application/json" } : {},
-    body: method === "POST" ? JSON.stringify(payload) : undefined,
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "云端任务请求失败");
-  return data;
+  if (method === "GET") {
+    const cloudId = payload.id;
+    const query = `?cloud_id=eq.${encodeURIComponent(cloudId)}&select=cloud_id,data&limit=1`;
+    const response = await fetch(supabaseTripUrl(query), {
+      headers: supabaseHeaders(),
+    });
+    const rows = await response.json().catch(() => []);
+    if (!response.ok) throw new Error(rows.message || "云端任务加载失败");
+    if (!rows.length) throw new Error("云端任务不存在");
+    return {
+      id: rows[0].cloud_id,
+      trip: rows[0].data,
+    };
+  }
+
+  if (method === "POST") {
+    const cloudId = payload.id || uid();
+    const trip = cloneTripForCloud(payload.trip, cloudId);
+    const row = {
+      cloud_id: cloudId,
+      data: trip,
+      updated_at: new Date().toISOString(),
+    };
+    const response = await fetch(supabaseTripUrl("?on_conflict=cloud_id"), {
+      method: "POST",
+      headers: supabaseHeaders({
+        prefer: "resolution=merge-duplicates,return=representation",
+      }),
+      body: JSON.stringify(row),
+    });
+    const rows = await response.json().catch(() => []);
+    if (!response.ok) throw new Error(rows.message || "云端任务保存失败");
+    const saved = Array.isArray(rows) ? rows[0] : null;
+    return {
+      id: saved?.cloud_id || cloudId,
+      trip,
+    };
+  }
+
+  throw new Error("不支持的云端请求");
 }
 
 async function loadCloudTrip(id) {

@@ -1,7 +1,3 @@
 [build]
   publish = "."
   command = "echo 'static app'"
-
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
