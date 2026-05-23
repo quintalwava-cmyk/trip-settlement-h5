@@ -1422,6 +1422,7 @@ function renderTripPanel(trip) {
         <a href="#member-section">成员填报</a>
         <a href="#expense-section">共同费用</a>
         <a href="#summary-section">结算</a>
+        <a href="#diff-section">偏差</a>
       </nav>
       <div class="content">
         ${renderFollowupNotice(followups, tempIncomplete)}
@@ -1462,7 +1463,7 @@ function renderTripPanel(trip) {
 
 function renderPlanTab(trip) {
   return `
-    <div class="grid">
+    <div class="grid plan-grid">
       ${inputField("出差名称", "title", trip.title, "text", "trip-title")}
       ${inputField("负责人", "plan.owner", trip.plan.owner, "text", "例如：张三")}
       ${inputField("计划目的地", "plan.destination", trip.plan.destination, "text", "例如：上海、杭州")}
@@ -1562,6 +1563,19 @@ function renderActualTab(trip) {
     </datalist>
     <div class="member-table table-wrap">
       <table>
+        <colgroup>
+          <col class="col-person" />
+          <col class="col-status" />
+          <col class="col-destination" />
+          <col class="col-date" />
+          <col class="col-date" />
+          <col class="col-transport" />
+          <col class="col-money" />
+          <col class="col-buyer" />
+          <col class="col-vehicle" />
+          <col class="col-note" />
+          <col class="col-action" />
+        </colgroup>
         <thead>
           <tr>
             <th>人员</th>
@@ -1678,7 +1692,7 @@ function renderMemberCard(report, planned) {
           <button class="button icon danger" data-remove-member="${report.id}" title="${planned.includes(report.name) ? "清空填报" : "移除人员"}">×</button>
         </div>
       </div>
-      <div class="grid">
+      <div class="grid member-card-grid">
         <div class="field">
           <label>姓名</label>
           <input data-member="${report.id}" data-member-key="name" value="${escapeHtml(report.name)}" ${planned.includes(report.name) ? "disabled" : ""} />
@@ -1687,7 +1701,7 @@ function renderMemberCard(report, planned) {
           <label>填报状态</label>
           ${renderMemberStatusButtons(report)}
         </div>
-        <div class="field">
+        <div class="field full">
           <label>实际目的地</label>
           <input data-member="${report.id}" data-member-key="destination" value="${escapeHtml(report.destination)}" placeholder="例如：上海、苏州" ${absent ? "disabled" : ""} />
         </div>
@@ -1831,7 +1845,7 @@ function renderSummaryTab(trip) {
       <div class="metric"><span>最终应发/应收</span><strong>￥${money(summary.finalTotal)}</strong></div>
     </div>
     <div class="hint summary-note">交通票据报销仅供后续票据报销核对，不参与共同费用分摊和最终补贴金额。</div>
-    <div class="table-wrap">
+    <div class="table-wrap settlement-table">
       <table>
         <thead>
           <tr>
