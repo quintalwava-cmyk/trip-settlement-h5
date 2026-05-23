@@ -12,8 +12,16 @@ const vehicleTypes = {
   fuel: { label: "油车", allowance: 250 },
 };
 
+const transportModes = {
+  none: { label: "未选择", reimbursable: false },
+  selfDrive: { label: "自驾", reimbursable: false },
+  train: { label: "火车", reimbursable: true },
+  flight: { label: "飞机", reimbursable: true },
+};
+
 const reportStatuses = {
   pending: { label: "未填报", className: "pending" },
+  partial: { label: "待补充", className: "pending" },
   traveled: { label: "已出差", className: "done" },
   absent: { label: "实际未出差", className: "absent" },
 };
@@ -96,6 +104,9 @@ function normalizeTrip(trip) {
       startDate: trip.actual?.startDate || "",
       endDate: trip.actual?.endDate || "",
       status: trip.actual?.startDate && trip.actual?.endDate ? "traveled" : "pending",
+      transportMode: "none",
+      ticketAmount: 0,
+      ticketBuyer: "",
       drives: false,
       vehicleType: "none",
       note: trip.actual?.note || "",
@@ -122,7 +133,19 @@ function normalizeReport(report) {
     report.destination = "";
     report.drives = false;
     report.vehicleType = "none";
+    report.transportMode = "none";
+    report.ticketAmount = 0;
+    report.ticketBuyer = "";
   }
+  report.transportMode ||= report.drives ? "selfDrive" : "none";
+  if (!transportModes[report.transportMode]) report.transportMode = "none";
+  if (report.transportMode === "selfDrive") report.drives = true;
+  if (report.transportMode === "train" || report.transportMode === "flight") {
+    report.drives = false;
+    report.vehicleType = "none";
+  }
+  report.ticketAmount = Number(report.ticketAmount || 0);
+  report.ticketBuyer ||= "";
   report.drives = Boolean(report.drives);
   report.vehicleType = report.drives ? report.vehicleType || "ev" : "none";
   if (!vehicleTypes[report.vehicleType]) report.vehicleType = "none";
@@ -137,6 +160,7 @@ function migrateVehicleExpenses(trip) {
       if (!report) return;
       report.drives = true;
       report.vehicleType = expense.type;
+      report.transportMode = "selfDrive";
     });
 }
 
@@ -151,6 +175,9 @@ function syncPlannedReports(trip) {
         startDate: "",
         endDate: "",
         status: "pending",
+        transportMode: "none",
+        ticketAmount: 0,
+        ticketBuyer: "",
         drives: false,
         vehicleType: "none",
         note: "",
@@ -203,6 +230,9 @@ function sampleTrips() {
           startDate: "2026-05-10",
           endDate: "2026-05-13",
           status: "traveled",
+          transportMode: "selfDrive",
+          ticketAmount: 0,
+          ticketBuyer: "",
           drives: true,
           vehicleType: "ev",
           note: "实际新增苏州客户现场沟通。",
@@ -214,6 +244,9 @@ function sampleTrips() {
           startDate: "2026-05-10",
           endDate: "2026-05-13",
           status: "traveled",
+          transportMode: "train",
+          ticketAmount: 428,
+          ticketBuyer: "莉欣",
           drives: false,
           vehicleType: "none",
           note: "按计划参加客户拜访。",
@@ -225,6 +258,9 @@ function sampleTrips() {
           startDate: "2026-05-10",
           endDate: "2026-05-13",
           status: "traveled",
+          transportMode: "selfDrive",
+          ticketAmount: 0,
+          ticketBuyer: "",
           drives: true,
           vehicleType: "fuel",
           note: "苏州段负责技术交流。",
@@ -236,6 +272,9 @@ function sampleTrips() {
           startDate: "2026-05-12",
           endDate: "2026-05-13",
           status: "traveled",
+          transportMode: "flight",
+          ticketAmount: 760,
+          ticketBuyer: "公司",
           drives: false,
           vehicleType: "none",
           note: "临时加入苏州客户现场。",
@@ -323,12 +362,15 @@ function findReport(trip, name) {
 function reportStatus(report) {
   if (!report) return "pending";
   if (report.status === "absent") return "absent";
-  if (report.startDate && report.endDate) return "traveled";
+  if (hasActualDates(report)) {
+    return hasCompleteTransport(report) ? "traveled" : "partial";
+  }
+  if (report.status === "traveled") return "partial";
   return "pending";
 }
 
 function isTraveledReport(report) {
-  return reportStatus(report) === "traveled" && report.startDate && report.endDate;
+  return hasActualDates(report) && report.status !== "absent";
 }
 
 function reportStatusLabel(report) {
@@ -339,6 +381,36 @@ function reportStatusClass(report) {
   return reportStatuses[reportStatus(report)]?.className || "pending";
 }
 
+function transportLabel(mode) {
+  return transportModes[mode]?.label || "未选择";
+}
+
+function hasTicketTransport(report) {
+  return report?.transportMode === "train" || report?.transportMode === "flight";
+}
+
+function hasActualDates(report) {
+  return Boolean(report?.startDate && report?.endDate);
+}
+
+function hasCompleteTransport(report) {
+  if (!report || report.status === "absent") return true;
+  if (report.transportMode === "selfDrive") {
+    return report.drives && report.vehicleType !== "none";
+  }
+  if (hasTicketTransport(report)) {
+    return Number(report.ticketAmount || 0) > 0 && Boolean(report.ticketBuyer);
+  }
+  return false;
+}
+
+function ticketTransportTotal(trip) {
+  return actualReports(trip).reduce((sum, report) => {
+    if (!hasTicketTransport(report)) return sum;
+    return sum + Number(report.ticketAmount || 0);
+  }, 0);
+}
+
 function plannedReports(trip) {
   return planPeople(trip)
     .map((name) => findReport(trip, name))
@@ -346,13 +418,20 @@ function plannedReports(trip) {
 }
 
 function pendingPlannedReports(trip) {
-  return plannedReports(trip).filter((report) => reportStatus(report) === "pending");
+  return plannedReports(trip).filter((report) => {
+    const status = reportStatus(report);
+    return status !== "traveled" && status !== "absent";
+  });
 }
 
 function incompleteTempReports(trip) {
   const planned = planPeople(trip);
   return (trip.memberReports || []).filter(
-    (report) => report.name && !planned.includes(report.name) && reportStatus(report) === "pending",
+    (report) => {
+      if (!report.name || planned.includes(report.name)) return false;
+      const status = reportStatus(report);
+      return status !== "traveled" && status !== "absent";
+    },
   );
 }
 
@@ -402,6 +481,9 @@ function calculateSettlement(trip) {
       name,
       days,
       destination: report?.destination || "",
+      transportMode: report?.transportMode || "none",
+      ticketAmount: hasTicketTransport(report) ? Number(report.ticketAmount || 0) : 0,
+      ticketBuyer: hasTicketTransport(report) ? report.ticketBuyer || "" : "",
       base: days * DAILY_ALLOWANCE,
       sharedDeduction: 0,
       advanceReceivable: 0,
@@ -458,6 +540,7 @@ function totals(trip) {
     if (!report.drives || !vehicleTypes[report.vehicleType]) return sum;
     return sum + vehicleTypes[report.vehicleType].allowance;
   }, 0);
+  const ticketTotal = ticketTransportTotal(trip);
   return {
     days: actualReports(trip).reduce(
       (sum, report) => sum + naturalDays(report.startDate, report.endDate),
@@ -466,6 +549,7 @@ function totals(trip) {
     people: actualPeople(trip).length,
     expenseTotal,
     vehicleTotal,
+    ticketTotal,
     finalTotal: settlement.reduce((sum, row) => sum + row.finalAmount, 0),
   };
 }
@@ -585,9 +669,11 @@ function memberDateRows(trip) {
       diff:
         status === "pending"
           ? "待跟进"
-          : status === "absent"
-            ? `-${planDays} 天`
-            : signedDayDiff(actualDays, planned.includes(name) ? planDays : 0),
+          : status === "partial"
+            ? "待补充"
+            : status === "absent"
+              ? `-${planDays} 天`
+              : signedDayDiff(actualDays, planned.includes(name) ? planDays : 0),
     };
   });
 }
@@ -784,6 +870,9 @@ function addMemberReport() {
       startDate: "",
       endDate: "",
       status: "pending",
+      transportMode: "none",
+      ticketAmount: 0,
+      ticketBuyer: "",
       drives: false,
       vehicleType: "none",
       note: "",
@@ -804,6 +893,9 @@ function updateMemberReport(id, key, value) {
         report.endDate = "";
         report.drives = false;
         report.vehicleType = "none";
+        report.transportMode = "none";
+        report.ticketAmount = 0;
+        report.ticketBuyer = "";
         trip.expenses.forEach((expense) => {
           expense.participants = (expense.participants || []).filter(
             (name) => name !== report.name,
@@ -817,6 +909,34 @@ function updateMemberReport(id, key, value) {
       if (value === "traveled") {
         report.startDate ||= trip.plan.startDate || "";
         report.endDate ||= trip.plan.endDate || "";
+        if (!report.transportMode) report.transportMode = "none";
+      }
+      return;
+    }
+    if (key === "transportMode") {
+      report.transportMode = value;
+      if (!transportModes[report.transportMode]) report.transportMode = "none";
+      if (report.transportMode === "selfDrive") {
+        report.drives = true;
+        report.vehicleType = report.vehicleType === "none" ? "ev" : report.vehicleType;
+        report.ticketAmount = 0;
+        report.ticketBuyer = "";
+        report.status = "traveled";
+        report.startDate ||= trip.plan.startDate || "";
+        report.endDate ||= trip.plan.endDate || "";
+      }
+      if (report.transportMode === "train" || report.transportMode === "flight") {
+        report.drives = false;
+        report.vehicleType = "none";
+        report.status = "traveled";
+        report.startDate ||= trip.plan.startDate || "";
+        report.endDate ||= trip.plan.endDate || "";
+      }
+      if (report.transportMode === "none") {
+        report.drives = false;
+        report.vehicleType = "none";
+        report.ticketAmount = 0;
+        report.ticketBuyer = "";
       }
       return;
     }
@@ -824,13 +944,30 @@ function updateMemberReport(id, key, value) {
       report.drives = value === true || value === "true";
       report.vehicleType = report.drives ? report.vehicleType || "ev" : "none";
       if (report.vehicleType === "none" && report.drives) report.vehicleType = "ev";
-      if (report.drives) report.status = "traveled";
+      report.transportMode = report.drives ? "selfDrive" : "none";
+      if (report.drives) {
+        report.status = "traveled";
+        report.startDate ||= trip.plan.startDate || "";
+        report.endDate ||= trip.plan.endDate || "";
+        report.ticketAmount = 0;
+        report.ticketBuyer = "";
+      }
       return;
     }
-    report[key] = value;
+    report[key] = key === "ticketAmount" ? Number(value || 0) : value;
     if (key === "vehicleType") {
       report.drives = value !== "none";
-      if (report.drives) report.status = "traveled";
+      report.transportMode = report.drives ? "selfDrive" : "none";
+      if (report.drives) {
+        report.status = "traveled";
+        report.startDate ||= trip.plan.startDate || "";
+        report.endDate ||= trip.plan.endDate || "";
+      }
+    }
+    if ((key === "ticketAmount" || key === "ticketBuyer") && value) {
+      report.status = "traveled";
+      report.startDate ||= trip.plan.startDate || "";
+      report.endDate ||= trip.plan.endDate || "";
     }
     if ((key === "startDate" || key === "endDate" || key === "destination") && value) {
       report.status = "traveled";
@@ -855,6 +992,9 @@ function removeMemberReport(id) {
       report.endDate = "";
       report.destination = "";
       report.status = "pending";
+      report.transportMode = "none";
+      report.ticketAmount = 0;
+      report.ticketBuyer = "";
       report.drives = false;
       report.vehicleType = "none";
       report.note = "";
@@ -931,6 +1071,7 @@ function buildExportFile(trip) {
     xmlRow([{ value: "补贴标准" }, { value: `${DAILY_ALLOWANCE} 元/人/天` }]),
     xmlRow([{ value: "共同费用总额" }, { value: summary.expenseTotal, type: "Number" }]),
     xmlRow([{ value: "车辆补贴总额" }, { value: summary.vehicleTotal, type: "Number" }]),
+    xmlRow([{ value: "交通票据报销总额" }, { value: summary.ticketTotal, type: "Number" }]),
     xmlRow([{ value: "最终应发/应收总额" }, { value: summary.finalTotal, type: "Number" }]),
   ];
 
@@ -971,6 +1112,9 @@ function buildExportFile(trip) {
       { value: "平摊扣除" },
       { value: "共同费用垫付应收" },
       { value: "车辆补贴应收" },
+      { value: "交通方式" },
+      { value: "交通票据报销" },
+      { value: "购票人" },
       { value: "最终金额" },
     ]),
     ...settlement.map((row) =>
@@ -981,6 +1125,9 @@ function buildExportFile(trip) {
         { value: row.sharedDeduction, type: "Number" },
         { value: row.advanceReceivable, type: "Number" },
         { value: row.vehicleReceivable, type: "Number" },
+        { value: transportLabel(row.transportMode) },
+        { value: row.ticketAmount, type: "Number" },
+        { value: row.ticketBuyer },
         { value: row.finalAmount, type: "Number" },
       ]),
     ),
@@ -996,6 +1143,9 @@ function buildExportFile(trip) {
       { value: "实际出发日期" },
       { value: "实际返回日期" },
       { value: "自然日天数" },
+      { value: "交通方式" },
+      { value: "交通票据费用" },
+      { value: "购票人" },
       { value: "是否开车" },
       { value: "车辆类型" },
       { value: "车辆补贴" },
@@ -1012,6 +1162,9 @@ function buildExportFile(trip) {
         { value: report.startDate || "" },
         { value: report.endDate || "" },
         { value: row.actualDays, type: "Number" },
+        { value: transportLabel(report.transportMode) },
+        { value: hasTicketTransport(report) ? Number(report.ticketAmount || 0) : 0, type: "Number" },
+        { value: hasTicketTransport(report) ? report.ticketBuyer || "" : "" },
         { value: report.drives ? "是" : "否" },
         { value: report.drives ? vehicleTypes[report.vehicleType]?.label || "" : "" },
         {
@@ -1395,14 +1548,18 @@ function renderDateOverview(trip) {
 
 function renderActualTab(trip) {
   const planned = planPeople(trip);
+  const buyerOptions = unique(["公司", ...reportPeople(trip)]);
   return `
     <div class="section-title">
       <div>
         <h3>成员实际填报</h3>
-        <div class="hint">桌面端用表格快速核对，手机端自动切换为成员卡片。</div>
+        <div class="hint">用快捷按钮确认是否出差；火车/飞机票据费用只做报销登记，不参与共同分摊。</div>
       </div>
       <button class="button primary" data-action="add-member">＋ 新增实际人员</button>
     </div>
+    <datalist id="ticket-buyer-options">
+      ${buyerOptions.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("")}
+    </datalist>
     <div class="member-table table-wrap">
       <table>
         <thead>
@@ -1412,7 +1569,9 @@ function renderActualTab(trip) {
             <th>实际目的地</th>
             <th>实际出发</th>
             <th>实际返回</th>
-            <th>开车</th>
+            <th>交通方式</th>
+            <th class="number">票据费用</th>
+            <th>购票人</th>
             <th>车辆类型</th>
             <th>备注</th>
             <th>操作</th>
@@ -1422,7 +1581,7 @@ function renderActualTab(trip) {
           ${
             trip.memberReports.length
               ? trip.memberReports.map((report) => renderMemberTableRow(report, planned)).join("")
-              : `<tr><td colspan="9">请先在计划里填写计划人员，或新增实际人员。</td></tr>`
+              : `<tr><td colspan="11">请先在计划里填写计划人员，或新增实际人员。</td></tr>`
           }
         </tbody>
       </table>
@@ -1437,27 +1596,33 @@ function renderActualTab(trip) {
   `;
 }
 
-function renderMemberStatusSelect(report) {
+function renderMemberStatusButtons(report) {
   const status = reportStatus(report);
+  const markedTraveled = report.status === "traveled" || status === "traveled" || status === "partial";
   return `
-    <select data-member="${report.id}" data-member-key="status">
-      <option value="pending" ${status === "pending" ? "selected" : ""}>未填报</option>
-      <option value="traveled" ${status === "traveled" ? "selected" : ""}>已出差</option>
-      <option value="absent" ${status === "absent" ? "selected" : ""}>实际未出差</option>
-    </select>
+    <div class="quick-status" aria-label="填报状态">
+      <button class="button ${markedTraveled ? "primary" : "ghost"}" data-member-status="${report.id}" data-status="traveled" type="button">已出差</button>
+      <button class="button ${status === "absent" ? "danger-soft" : "ghost"}" data-member-status="${report.id}" data-status="absent" type="button">未出差</button>
+    </div>
   `;
 }
 
-function renderAbsentToggle(report) {
-  const status = reportStatus(report);
-  return status === "absent"
-    ? `<button class="button ghost" data-member-status="${report.id}" data-status="pending">改为填报</button>`
-    : `<button class="button ghost" data-member-status="${report.id}" data-status="absent">确认未出差</button>`;
+function renderTransportSelect(report, disabled) {
+  return `
+    <select data-member="${report.id}" data-member-key="transportMode" ${disabled ? "disabled" : ""}>
+      <option value="none" ${report.transportMode === "none" ? "selected" : ""}>请选择</option>
+      <option value="selfDrive" ${report.transportMode === "selfDrive" ? "selected" : ""}>自驾</option>
+      <option value="train" ${report.transportMode === "train" ? "selected" : ""}>火车</option>
+      <option value="flight" ${report.transportMode === "flight" ? "selected" : ""}>飞机</option>
+    </select>
+  `;
 }
 
 function renderMemberTableRow(report, planned) {
   const isPlanned = planned.includes(report.name);
   const absent = reportStatus(report) === "absent";
+  const ticketTransport = hasTicketTransport(report);
+  const selfDrive = report.transportMode === "selfDrive";
   return `
     <tr>
       <td>
@@ -1466,21 +1631,23 @@ function renderMemberTableRow(report, planned) {
       </td>
       <td>
         <div class="status-control">
-          ${renderMemberStatusSelect(report)}
-          ${renderAbsentToggle(report)}
+          ${renderMemberStatusButtons(report)}
         </div>
       </td>
       <td><input class="table-input" data-member="${report.id}" data-member-key="destination" value="${escapeHtml(report.destination)}" ${absent ? "disabled" : ""} /></td>
       <td><input class="table-input date-input" type="date" data-member="${report.id}" data-member-key="startDate" value="${escapeHtml(report.startDate)}" ${absent ? "disabled" : ""} /></td>
       <td><input class="table-input date-input" type="date" data-member="${report.id}" data-member-key="endDate" value="${escapeHtml(report.endDate)}" ${absent ? "disabled" : ""} /></td>
       <td>
-        <select data-member="${report.id}" data-member-key="drives" ${absent ? "disabled" : ""}>
-          <option value="false" ${report.drives ? "" : "selected"}>否</option>
-          <option value="true" ${report.drives ? "selected" : ""}>是</option>
-        </select>
+        ${renderTransportSelect(report, absent)}
       </td>
       <td>
-        <select data-member="${report.id}" data-member-key="vehicleType" ${report.drives && !absent ? "" : "disabled"}>
+        <input class="table-input money-input" type="number" min="0" step="0.01" data-member="${report.id}" data-member-key="ticketAmount" value="${escapeHtml(report.ticketAmount || "")}" ${ticketTransport && !absent ? "" : "disabled"} />
+      </td>
+      <td>
+        <input class="table-input buyer-input" list="ticket-buyer-options" data-member="${report.id}" data-member-key="ticketBuyer" value="${escapeHtml(report.ticketBuyer || "")}" ${ticketTransport && !absent ? "" : "disabled"} />
+      </td>
+      <td>
+        <select data-member="${report.id}" data-member-key="vehicleType" ${selfDrive && !absent ? "" : "disabled"}>
           <option value="ev" ${report.vehicleType === "ev" ? "selected" : ""}>新能源</option>
           <option value="fuel" ${report.vehicleType === "fuel" ? "selected" : ""}>油车</option>
         </select>
@@ -1499,6 +1666,8 @@ function renderMemberCard(report, planned) {
   const days = naturalDays(report.startDate, report.endDate);
   const status = reportStatus(report);
   const absent = status === "absent";
+  const ticketTransport = hasTicketTransport(report);
+  const selfDrive = report.transportMode === "selfDrive";
   const statusText = status === "traveled" && report.startDate && report.endDate ? `${days} 天` : reportStatusLabel(report);
   return `
     <div class="member-card">
@@ -1516,7 +1685,7 @@ function renderMemberCard(report, planned) {
         </div>
         <div class="field">
           <label>填报状态</label>
-          ${renderMemberStatusSelect(report)}
+          ${renderMemberStatusButtons(report)}
         </div>
         <div class="field">
           <label>实际目的地</label>
@@ -1531,15 +1700,20 @@ function renderMemberCard(report, planned) {
           <input type="date" data-member="${report.id}" data-member-key="endDate" value="${escapeHtml(report.endDate)}" ${absent ? "disabled" : ""} />
         </div>
         <div class="field">
-          <label>是否开车</label>
-          <select data-member="${report.id}" data-member-key="drives" ${absent ? "disabled" : ""}>
-            <option value="false" ${report.drives ? "" : "selected"}>否</option>
-            <option value="true" ${report.drives ? "selected" : ""}>是</option>
-          </select>
+          <label>交通方式</label>
+          ${renderTransportSelect(report, absent)}
+        </div>
+        <div class="field">
+          <label>票据费用</label>
+          <input type="number" min="0" step="0.01" data-member="${report.id}" data-member-key="ticketAmount" value="${escapeHtml(report.ticketAmount || "")}" placeholder="火车/飞机票金额" ${ticketTransport && !absent ? "" : "disabled"} />
+        </div>
+        <div class="field">
+          <label>购票人</label>
+          <input list="ticket-buyer-options" data-member="${report.id}" data-member-key="ticketBuyer" value="${escapeHtml(report.ticketBuyer || "")}" placeholder="个人、公司或同事" ${ticketTransport && !absent ? "" : "disabled"} />
         </div>
         <div class="field">
           <label>车辆类型</label>
-          <select data-member="${report.id}" data-member-key="vehicleType" ${report.drives && !absent ? "" : "disabled"}>
+          <select data-member="${report.id}" data-member-key="vehicleType" ${selfDrive && !absent ? "" : "disabled"}>
             <option value="ev" ${report.vehicleType === "ev" ? "selected" : ""}>新能源车（补贴 150）</option>
             <option value="fuel" ${report.vehicleType === "fuel" ? "selected" : ""}>油车（补贴 250）</option>
           </select>
@@ -1547,9 +1721,6 @@ function renderMemberCard(report, planned) {
         <div class="field full">
           <label>成员说明</label>
           <input data-member="${report.id}" data-member-key="note" value="${escapeHtml(report.note)}" placeholder="实际行程变化或补充说明" />
-        </div>
-        <div class="field full">
-          ${renderAbsentToggle(report)}
         </div>
       </div>
     </div>
@@ -1656,8 +1827,10 @@ function renderSummaryTab(trip) {
       <div class="metric"><span>合计人天</span><strong>${summary.days}</strong></div>
       <div class="metric"><span>共同费用</span><strong>￥${money(summary.expenseTotal)}</strong></div>
       <div class="metric"><span>车辆补贴</span><strong>￥${money(summary.vehicleTotal)}</strong></div>
+      <div class="metric"><span>交通票据报销</span><strong>￥${money(summary.ticketTotal)}</strong></div>
       <div class="metric"><span>最终应发/应收</span><strong>￥${money(summary.finalTotal)}</strong></div>
     </div>
+    <div class="hint summary-note">交通票据报销仅供后续票据报销核对，不参与共同费用分摊和最终补贴金额。</div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -1669,6 +1842,9 @@ function renderSummaryTab(trip) {
             <th class="number">平摊扣除</th>
             <th class="number">共同费用垫付</th>
             <th class="number">车辆补贴应收</th>
+            <th>交通方式</th>
+            <th class="number">票据报销</th>
+            <th>购票人</th>
             <th class="number">最终金额</th>
           </tr>
         </thead>
@@ -1686,12 +1862,15 @@ function renderSummaryTab(trip) {
                       <td class="number">￥${money(row.sharedDeduction)}</td>
                       <td class="number">￥${money(row.advanceReceivable)}</td>
                       <td class="number">￥${money(row.vehicleReceivable)}</td>
+                      <td>${escapeHtml(transportLabel(row.transportMode))}</td>
+                      <td class="number">￥${money(row.ticketAmount)}</td>
+                      <td>${escapeHtml(row.ticketBuyer || "-")}</td>
                       <td class="number ${row.finalAmount < 0 ? "negative" : "positive"}">￥${money(row.finalAmount)}</td>
                     </tr>
                   `,
                   )
                   .join("")
-              : `<tr><td colspan="8">请先在“成员填报”里填写实际人员和实际日期</td></tr>`
+              : `<tr><td colspan="11">请先在“成员填报”里填写实际人员和实际日期</td></tr>`
           }
         </tbody>
       </table>

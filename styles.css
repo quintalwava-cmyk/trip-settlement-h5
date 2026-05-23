@@ -158,6 +158,12 @@ button {
   color: var(--danger);
 }
 
+.button.danger-soft {
+  border-color: #fecaca;
+  background: #fff1f0;
+  color: #b42318;
+}
+
 .button.icon {
   width: 30px;
   min-height: 30px;
@@ -592,9 +598,13 @@ button {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 10px;
+}
+
+.summary-note {
+  margin: -2px 0 8px;
 }
 
 .date-summary {
@@ -651,7 +661,7 @@ table {
 }
 
 .member-table table {
-  min-width: 1120px;
+  min-width: 1320px;
 }
 
 th,
@@ -711,6 +721,14 @@ tr:last-child td {
   min-width: 150px;
 }
 
+.money-input {
+  min-width: 86px;
+}
+
+.buyer-input {
+  min-width: 100px;
+}
+
 .row-hint {
   display: block;
   margin-top: 3px;
@@ -727,12 +745,21 @@ tr:last-child td {
 
 .status-control {
   display: grid;
-  min-width: 126px;
+  min-width: 132px;
   gap: 5px;
 }
 
-.status-control .button {
+.quick-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.quick-status .button {
   width: 100%;
+  min-height: 28px;
+  padding: 4px 6px;
+  white-space: nowrap;
 }
 
 .positive {
