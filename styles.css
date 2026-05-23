@@ -378,6 +378,45 @@ button {
   font-size: 11px;
 }
 
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.status-pill.done {
+  border-color: #bbf7d0;
+  background: #ecfdf3;
+  color: #047857;
+}
+
+.status-pill.pending {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.status-pill.absent {
+  border-color: #dbe3ea;
+  background: #f1f5f9;
+  color: #475467;
+}
+
 .tabs {
   display: flex;
   gap: 4px;
@@ -420,8 +459,42 @@ button {
   vertical-align: middle;
 }
 
+.anchor-nav {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #fff;
+  overflow-x: auto;
+}
+
+.anchor-nav a {
+  min-width: max-content;
+  padding: 6px 9px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.anchor-nav a:hover {
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
 .content {
   padding: 10px;
+}
+
+.work-section {
+  scroll-margin-top: 72px;
+}
+
+.work-section + .work-section {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .grid {
@@ -524,6 +597,10 @@ button {
   margin-bottom: 10px;
 }
 
+.date-summary {
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+}
+
 .metric {
   position: relative;
   overflow: hidden;
@@ -569,6 +646,14 @@ table {
   background: #fff;
 }
 
+.compact-table table {
+  min-width: 720px;
+}
+
+.member-table table {
+  min-width: 1120px;
+}
+
 th,
 td {
   padding: 6px 8px;
@@ -593,6 +678,61 @@ tr:last-child td {
 .number {
   text-align: right;
   white-space: nowrap;
+}
+
+.table-input,
+.member-table select {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.table-input:disabled,
+.member-table select:disabled {
+  background: #f3f6f8;
+  color: #98a2b3;
+}
+
+.name-input {
+  min-width: 76px;
+  font-weight: 750;
+}
+
+.date-input {
+  min-width: 120px;
+}
+
+.note-input {
+  min-width: 150px;
+}
+
+.row-hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-control {
+  display: grid;
+  min-width: 126px;
+  gap: 5px;
+}
+
+.status-control .button {
+  width: 100%;
 }
 
 .positive {
@@ -631,6 +771,10 @@ tr:last-child td {
 .member-grid {
   display: grid;
   gap: 7px;
+}
+
+.mobile-member-grid {
+  display: none;
 }
 
 .member-card {
@@ -672,6 +816,32 @@ tr:last-child td {
   color: var(--muted);
 }
 
+.followup-notice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.followup-notice > div {
+  padding: 8px 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.followup-notice strong,
+.followup-notice span {
+  display: block;
+}
+
+.followup-notice span {
+  margin-top: 2px;
+  color: #b45309;
+  font-size: 11px;
+}
+
 .toast {
   position: fixed;
   right: 20px;
@@ -692,6 +862,10 @@ tr:last-child td {
 
   .summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .date-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -779,6 +953,11 @@ tr:last-child td {
     padding: 8px;
   }
 
+  .work-section + .work-section {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
   .grid,
   .grid.three {
     grid-template-columns: 1fr;
@@ -801,6 +980,18 @@ tr:last-child td {
   .cloud-notice {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .followup-notice {
+    grid-template-columns: 1fr;
+  }
+
+  .member-table {
+    display: none;
+  }
+
+  .mobile-member-grid {
+    display: grid;
   }
 
   .diff-row {
